@@ -2,7 +2,6 @@ name: Daily Natural Dal Report
 
 on:
   schedule:
-    # Runs at 6:00 PM IST daily (12:30 PM UTC)
     - cron: '30 12 * * *'
   workflow_dispatch:
 
@@ -11,52 +10,87 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Check URL Accessibility
+    - name: Debug Server Connection
       run: |
-        REPORT_URL="https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github"
+        echo "=== Testing Server Connection ==="
         
-        echo "Testing URL: $REPORT_URL"
-        
-        # Test 1: Check if domain resolves
-        echo "1. Testing DNS resolution..."
-        if ping -c 1 naturaldal1.kesug.com &> /dev/null; then
-          echo "✅ DNS resolution successful"
+        # Test basic connectivity
+        echo "1. Testing if server is reachable..."
+        if ping -c 2 naturaldal1.kesug.com &> /dev/null; then
+          echo "✅ Server is reachable"
         else
-          echo "❌ DNS resolution failed"
+          echo "❌ Server is not reachable"
+          exit 1
         fi
         
-        # Test 2: Check if port 443 is open
-        echo "2. Testing port 443..."
-        if nc -z -w 5 naturaldal1.kesug.com 443; then
-          echo "✅ Port 443 is open"
-        else
-          echo "❌ Port 443 is closed"
-        fi
+        # Test SSL certificate
+        echo "2. Testing SSL certificate..."
+        openssl s_client -connect naturaldal1.kesug.com:443 -servername naturaldal1.kesug.com < /dev/null 2>&1 | grep -A2 "Certificate chain"
         
-        # Test 3: Make detailed HTTP request
-        echo "3. Making HTTP request with verbose output..."
-        curl -v --max-time 30 "$REPORT_URL" || echo "CURL failed with exit code: $?"
+        # Test with different curl options
+        echo "3. Testing with detailed curl..."
         
-    - name: Trigger Daily Report
-      run: |
-        REPORT_URL="https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github"
+        echo "Test 1: Simple GET"
+        curl -v --max-time 10 "https://naturaldal1.kesug.com/" 2>&1 | grep -E "(HTTP|< title|Connected)"
         
-        echo "Making final request..."
-        response=$(curl -s -w "\nHTTP_STATUS:%{http_code}" --max-time 30 "$REPORT_URL")
+        echo "Test 2: Your specific URL"
+        curl -v --max-time 10 "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -20
         
-        # Extract HTTP status
-        http_status=$(echo "$response" | grep "HTTP_STATUS:" | cut -d':' -f2)
-        body=$(echo "$response" | grep -v "HTTP_STATUS:")
-        
-        echo "Response Body: $body"
-        echo "HTTP Status: $http_status"
-        
-        if [[ "$http_status" == "200" ]]; then
-          echo "✅ Report triggered successfully"
-        else
-          echo "❌ Report trigger failed with HTTP $http_status"
-        fi
+        echo "Test 3: With User-Agent header"
+        curl -v --max-time 10 -H "User-Agent: GitHubActions" "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -20
     
-    - name: Log Completion
+    - name: Try Different Approaches
       run: |
-        echo "::notice ::Daily report execution completed at $(date)"
+        REPORT_URL="https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github"
+        
+        echo "=== Trying Different Request Methods ==="
+        
+        # Method 1: With full headers
+        echo "Method 1: With browser-like headers"
+        curl -v --max-time 30 \
+          -H "User-Agent: Mozilla/5.0 (compatible; GitHubActions/1.0)" \
+          -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+          -H "Accept-Language: en-US,en;q=0.9" \
+          -H "Cache-Control: no-cache" \
+          "$REPORT_URL" 2>&1 | grep -E "(HTTP|<|>)" || true
+        
+        echo "---"
+        
+        # Method 2: POST instead of GET
+        echo "Method 2: Using POST method"
+        curl -v --max-time 30 \
+          -X POST \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          -d "force=yes&source=github" \
+          "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php" 2>&1 | grep -E "(HTTP|<|>)" || true
+        
+        echo "---"
+        
+        # Method 3: HTTP/1.0 instead of HTTP/1.1
+        echo "Method 3: Using HTTP/1.0"
+        curl -v --max-time 30 \
+          --http1.0 \
+          "$REPORT_URL" 2>&1 | grep -E "(HTTP|<|>)" || true
+    
+    - name: Check WordPress Specific Issues
+      run: |
+        echo "=== Testing WordPress Specific Endpoints ==="
+        
+        # Test if WordPress is running
+        echo "1. Testing WordPress home page..."
+        curl -s -o /dev/null -w "%{http_code}" "https://naturaldal1.kesug.com/" && echo " - Homepage status"
+        
+        # Test if plugins directory is accessible
+        echo "2. Testing plugins directory..."
+        curl -s -o /dev/null -w "%{http_code}" "https://naturaldal1.kesug.com/wp-content/plugins/" && echo " - Plugins directory status"
+        
+        # Test admin-ajax.php (common WordPress endpoint)
+        echo "3. Testing admin-ajax.php..."
+        curl -v --max-time 10 "https://naturaldal1.kesug.com/wp-admin/admin-ajax.php" 2>&1 | grep -E "(HTTP|Content-Type)" || true
+        
+        # Test with referer header (WordPress often checks this)
+        echo "4. Testing with WordPress-style headers..."
+        curl -v --max-time 10 \
+          -H "User-Agent: WordPress" \
+          -H "Referer: https://naturaldal1.kesug.com/" \
+          "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -10 || true
