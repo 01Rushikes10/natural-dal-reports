@@ -1,0 +1,26 @@
+name: Daily Natural Dal Report
+
+on:
+  schedule:
+    # Runs at 6:00 PM IST daily (12:30 PM UTC)
+    - cron: '30 12 * * *'
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Trigger Daily Report
+      run: |
+        # Your report URL
+        REPORT_URL="https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github"
+        
+        # Send request with timeout
+        curl -s --max-time 30 "$REPORT_URL" || true
+        
+        echo "✅ Report triggered at $(date)"
+    
+    - name: Log Completion
+      run: |
+        echo "::notice ::Daily report execution completed at $(date)"
