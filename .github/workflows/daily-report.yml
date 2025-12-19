@@ -1,96 +1,24 @@
-name: Daily Natural Dal Report
-
-on:
-  schedule:
-    - cron: '30 12 * * *'
-  workflow_dispatch:
-
-jobs:
-  send-report:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Debug Server Connection
+    - name: Trigger Report with WordPress Authentication
+      env:
+        WORDPRESS_USER: ${{ secrets.WORDPRESS_USER }}
+        WORDPRESS_PASSWORD: ${{ secrets.WORDPRESS_PASSWORD }}
       run: |
-        echo "=== Testing Server Connection ==="
+        echo "=== Method: WordPress Cookie-Based Authentication ==="
         
-        # Test basic connectivity
-        echo "1. Testing if server is reachable..."
-        if ping -c 2 naturaldal1.kesug.com &> /dev/null; then
-          echo "✅ Server is reachable"
-        else
-          echo "❌ Server is not reachable"
-          exit 1
-        fi
+        # First login to get session cookie
+        echo "1. Attempting WordPress login..."
+        LOGIN_DATA="log=$WORDPRESS_USER&pwd=$WORDPRESS_PASSWORD&wp-submit=Log+In&redirect_to=https%3A%2F%2Fnaturaldal1.kesug.com%2Fwp-admin%2F&testcookie=1"
         
-        # Test SSL certificate
-        echo "2. Testing SSL certificate..."
-        openssl s_client -connect naturaldal1.kesug.com:443 -servername naturaldal1.kesug.com < /dev/null 2>&1 | grep -A2 "Certificate chain"
-        
-        # Test with different curl options
-        echo "3. Testing with detailed curl..."
-        
-        echo "Test 1: Simple GET"
-        curl -v --max-time 10 "https://naturaldal1.kesug.com/" 2>&1 | grep -E "(HTTP|< title|Connected)"
-        
-        echo "Test 2: Your specific URL"
-        curl -v --max-time 10 "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -20
-        
-        echo "Test 3: With User-Agent header"
-        curl -v --max-time 10 -H "User-Agent: GitHubActions" "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -20
-    
-    - name: Try Different Approaches
-      run: |
-        REPORT_URL="https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github"
-        
-        echo "=== Trying Different Request Methods ==="
-        
-        # Method 1: With full headers
-        echo "Method 1: With browser-like headers"
-        curl -v --max-time 30 \
-          -H "User-Agent: Mozilla/5.0 (compatible; GitHubActions/1.0)" \
-          -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
-          -H "Accept-Language: en-US,en;q=0.9" \
-          -H "Cache-Control: no-cache" \
-          "$REPORT_URL" 2>&1 | grep -E "(HTTP|<|>)" || true
-        
-        echo "---"
-        
-        # Method 2: POST instead of GET
-        echo "Method 2: Using POST method"
-        curl -v --max-time 30 \
-          -X POST \
+        # Get authentication cookies
+        curl -c /tmp/wp-cookies.txt \
           -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "force=yes&source=github" \
-          "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php" 2>&1 | grep -E "(HTTP|<|>)" || true
+          -d "$LOGIN_DATA" \
+          "https://naturaldal1.kesug.com/wp-login.php" -v 2>&1 | grep -E "(HTTP|Location|Set-Cookie)" || true
         
         echo "---"
         
-        # Method 3: HTTP/1.0 instead of HTTP/1.1
-        echo "Method 3: Using HTTP/1.0"
-        curl -v --max-time 30 \
-          --http1.0 \
-          "$REPORT_URL" 2>&1 | grep -E "(HTTP|<|>)" || true
-    
-    - name: Check WordPress Specific Issues
-      run: |
-        echo "=== Testing WordPress Specific Endpoints ==="
-        
-        # Test if WordPress is running
-        echo "1. Testing WordPress home page..."
-        curl -s -o /dev/null -w "%{http_code}" "https://naturaldal1.kesug.com/" && echo " - Homepage status"
-        
-        # Test if plugins directory is accessible
-        echo "2. Testing plugins directory..."
-        curl -s -o /dev/null -w "%{http_code}" "https://naturaldal1.kesug.com/wp-content/plugins/" && echo " - Plugins directory status"
-        
-        # Test admin-ajax.php (common WordPress endpoint)
-        echo "3. Testing admin-ajax.php..."
-        curl -v --max-time 10 "https://naturaldal1.kesug.com/wp-admin/admin-ajax.php" 2>&1 | grep -E "(HTTP|Content-Type)" || true
-        
-        # Test with referer header (WordPress often checks this)
-        echo "4. Testing with WordPress-style headers..."
-        curl -v --max-time 10 \
-          -H "User-Agent: WordPress" \
-          -H "Referer: https://naturaldal1.kesug.com/" \
-          "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -10 || true
+        # Use the cookies to access your script
+        echo "2. Accessing report script with cookies..."
+        curl -b /tmp/wp-cookies.txt \
+          -v --max-time 30 \
+          "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -20 || true
