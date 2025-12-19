@@ -1,24 +1,33 @@
-    - name: Trigger Report with WordPress Authentication
-      env:
-        WORDPRESS_USER: ${{ secrets.WORDPRESS_USER }}
-        WORDPRESS_PASSWORD: ${{ secrets.WORDPRESS_PASSWORD }}
+name: Execute Report via SSH
+on:
+  schedule:
+    - cron: '30 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Setup SSH
       run: |
-        echo "=== Method: WordPress Cookie-Based Authentication ==="
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
         
-        # First login to get session cookie
-        echo "1. Attempting WordPress login..."
-        LOGIN_DATA="log=$WORDPRESS_USER&pwd=$WORDPRESS_PASSWORD&wp-submit=Log+In&redirect_to=https%3A%2F%2Fnaturaldal1.kesug.com%2Fwp-admin%2F&testcookie=1"
+    - name: Execute Report Script on Server
+      run: |
+        ssh -i ~/.ssh/id_rsa \
+          ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+          "cd ${{ secrets.WORDPRESS_PATH }} && \
+          php wp-content/plugins/natural-dal-reports/send_daily_report.php force=yes source=github"
         
-        # Get authentication cookies
-        curl -c /tmp/wp-cookies.txt \
-          -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "$LOGIN_DATA" \
-          "https://naturaldal1.kesug.com/wp-login.php" -v 2>&1 | grep -E "(HTTP|Location|Set-Cookie)" || true
+        echo "✅ Report executed on server"
         
-        echo "---"
-        
-        # Use the cookies to access your script
-        echo "2. Accessing report script with cookies..."
-        curl -b /tmp/wp-cookies.txt \
-          -v --max-time 30 \
-          "https://naturaldal1.kesug.com/wp-content/plugins/natural-dal-reports/send_daily_report.php?force=yes&source=github" 2>&1 | tail -20 || true
+    - name: Send SMS Notification
+      if: always()
+      run: |
+        # Use your SMS provider here
+        echo "SMS would be sent here"
+        # Or execute SMS sending on your server via SSH
